@@ -14,30 +14,58 @@
 
 </div>
 
-Copy the values you've already stored in `~/.env` into every project's `.env` — automatically, accurately, and without touching secrets you haven't defined.
+Envoy keeps your secrets where they belong: **in every project that needs them, and out of every commit that doesn't.** Set it once in `postinstall` and forget it — every fresh clone gets a complete `.env` automatically, while a read-only `--check` gate stops real secrets from sneaking into version control.
 
 ```sh
+# Onboard — pull your real values into this project's .env
 yarn dlx @allons-y/envoy
 # ✨ Created /your/project/.env
+
+# Guard — fail the commit if a real secret slipped into a tracked file
+envoy --check
+# ⚠ Possible secret detected in .env.example:
+#   STRIPE_SECRET_KEY contains a value matching your local ~/.env
 ```
 
 ## The problem
 
 Every project starts the same way: copy `.env.example` → `.env`, then hunt through Notion, 1Password, Slack history, or your own memory for the actual values. In a monorepo it's worse — five packages, five `.env.example` files, the same ritual repeated for each one.
 
-If you keep a root `~/.env` with your real values (and you should), **envoy bridges the gap**. It reads your `.env.example` as a template, pulls matching keys from `~/.env`, and writes a complete `.env` alongside it — preserving every comment and blank line in the process.
+If you keep a root `~/.env` with your real values (and you should), **envoy bridges the gap**. It reads your `.env.example` as a template, pulls matching keys from `~/.env`, and writes a complete `.env` alongside it — preserving every comment and blank line in the process. Then it stays on as a guardrail, making sure those real values never end up somewhere they can be committed.
+
+## Envoy across your workflow
+
+Envoy isn't a one-time script whose existence you forget — it's a standing part of every project's lifecycle. Wire it in once and it covers the whole loop:
+
+| Stage       | How envoy runs         | What you get                                                           |
+| ----------- | ---------------------- | ---------------------------------------------------------------------- |
+| **Onboard** | `postinstall: "envoy"` | Every clone gets a complete, populated `.env` — zero manual setup      |
+| **Develop** | `envoy --dry-run`      | Preview exactly what would be written before anything touches disk     |
+| **Commit**  | `envoy --check`        | A read-only gate that blocks real secrets from reaching the repository |
+
+Set up the `postinstall` hook once and onboarding is genuinely _set it and forget it_: new contributors run their package manager and get a working `.env` — no doc to follow, no values to track down, no "works on my machine."
 
 ## Features
 
 - **Template-driven** — `.env.example` defines the shape; `~/.env` supplies the values
-- **Safe by default** — skips any `.env` that already exists; use `--force` to overwrite
-- **Security-first** — will not copy secrets if `.env` is currently tracked by git; warns the user if it isn't included in `.gitignore`
 - **Monorepo-aware** — recursively finds every `.env.example` under your project root, skipping `node_modules`
-- **Non-destructive** — keys absent from `~/.env` fall back to the example value, so nothing is lost
-- **Comment-preserving** — blank lines and `# comments` in `.env.example` are written as-is
-- **Preview before you commit** — `--dry-run` shows exactly what would be written without touching the filesystem
-- **MCP tool** — expose `copy_env` to any MCP-compatible host (Claude Desktop, Claude Code, etc.)
-- **No magic** — the source is small, readable, and fully tested
+- **Comment-preserving** — blank lines and `# comments` in `.env.example` are written through untouched
+- **Incremental** — keys absent from `~/.env` fall back to the example value, so you can adopt it gradually
+- **Two safety gates** — refuses to write into a git-tracked `.env`, and `--check` stops real secrets from being committed
+- **Preview mode** — `--dry-run` shows exactly what would be written without touching the filesystem
+- **MCP tool** — expose `copy_env` and `check_env` to any MCP-compatible host (Claude Desktop, Claude Code, etc.)
+
+## Why you can run it everywhere
+
+Standardizing a tool across every repo is a big ask, so envoy is built to earn that trust:
+
+- **Local-first** — reads `~/.env` on your machine; **no network calls**, no accounts, no SaaS, no telemetry
+- **Zero config** — nothing to author or maintain; sensible defaults out of the box
+- **Idempotent** — skips any `.env` that already exists, so running it on every install is completely safe
+- **Non-destructive** — never overwrites without `--force`, and missing keys fall back to the example value
+- **Read-only where it counts** — `--dry-run` and `--check` never modify a single byte on disk
+- **No lock-in** — it's just `.env` files; stop using envoy any time and nothing breaks
+- **Small and tested** — the source is short, readable, and fully covered by tests
 
 ## Installation
 
@@ -86,14 +114,15 @@ Run in any project root. Envoy will find every `.env.example` recursively and cr
 envoy
 ```
 
-| Flag            | Alias | Description                                    |
-| --------------- | ----- | ---------------------------------------------- |
-| `--force`       | `-f`  | Overwrite existing `.env` files                |
-| `--dry-run`     | `-n`  | Preview changes without writing any files      |
-| `--root <path>` | `-r`  | Use a custom root env file (default: `~/.env`) |
-| `--dir <path>`  | `-d`  | Directory to scan (default: current directory) |
-| `--skip-audit`  | `-s`  | Skip the git safety checks                     |
-| `--help`        | `-h`  | Show help                                      |
+| Flag            | Alias | Description                                             |
+| --------------- | ----- | ------------------------------------------------------- |
+| `--force`       | `-f`  | Overwrite existing `.env` files                         |
+| `--dry-run`     | `-n`  | Preview changes without writing any files               |
+| `--root <path>` | `-r`  | Use a custom root env file (default: `~/.env`)          |
+| `--dir <path>`  | `-d`  | Directory to scan (default: current directory)          |
+| `--skip-audit`  | `-s`  | Skip the git safety checks                              |
+| `--check`       | `-c`  | Validate committed files for leaked secrets (read-only) |
+| `--help`        | `-h`  | Show help                                               |
 
 **Examples:**
 
@@ -109,9 +138,103 @@ envoy --root ./secrets/.env.shared
 
 # Scan a specific directory
 envoy --dir packages/api
+
+# Validate that no secrets have leaked into committed files
+envoy --check
 ```
 
-### Security checks
+## Set it and forget it
+
+The highest-value place to run envoy is your project's `postinstall` script. Every contributor who clones the repo and runs their package manager gets a fully populated `.env` automatically — no onboarding doc to follow, no values to track down.
+
+```json
+{
+	"scripts": {
+		"postinstall": "envoy"
+	}
+}
+```
+
+This is the whole "set it and forget it" promise: because envoy **skips any `.env` that already exists**, running it on every install is completely safe and idempotent. Contributors who already have a `.env` never have their values touched; everyone else gets a working one for free. You configure it once and never think about onboarding again.
+
+**npm vs Yarn**
+
+Use `postinstall` for this hook regardless of which package manager your project uses. While npm supports a `prepare` lifecycle script that only runs during local development, **Yarn Berry does not support `prepare`** — `postinstall` is the correct choice for both.
+
+**Library authors**
+
+If your package is published to npm, a bare `postinstall` will run for every consumer who installs your package as a dependency — which is not what you want. Use [`pinst`](https://github.com/typicode/pinst) to strip the hook from your published tarball:
+
+```sh
+yarn add --dev pinst
+```
+
+```json
+{
+	"scripts": {
+		"postinstall": "envoy",
+		"prepack": "pinst --disable",
+		"postpack": "pinst --enable"
+	}
+}
+```
+
+`pinst --disable` removes `postinstall` from `package.json` before packing, so the published tarball consumers receive contains no hook. `pinst --enable` restores it locally afterward.
+
+## Secrets in, never out
+
+Envoy treats your secrets as a one-way street: they flow **in** from `~/.env` to the projects that need them, and envoy actively stops them flowing **out** into version control. Two complementary gates enforce this — one when envoy writes, one when you commit:
+
+- **At write time**, envoy refuses to populate a `.env` that git is already tracking, so it can never push secrets into a file headed for the repository.
+- **At commit time**, `envoy --check` fails the commit if a real secret has leaked into a staged or tracked file.
+
+Together they close the loop: there's no point at which a real value envoy manages can slip into a commit unnoticed.
+
+### Stop leaks before they're committed (`--check`)
+
+`--check` turns envoy into a read-only safety gate. It never writes or modifies any file — it only looks for real secrets that have made their way into files you're about to commit:
+
+```sh
+envoy --check
+```
+
+When run, envoy:
+
+1. Determines which files to scan — files **staged for commit** if any are staged, otherwise **all tracked files** (so it works both as a git hook and as an ad-hoc audit)
+2. Cross-references their contents against the values in your root `~/.env`
+3. Reports any file containing a verbatim copy of a known secret and exits non-zero
+4. Exits **zero, silently** when nothing is wrong — CI- and pre-commit-friendly
+
+```
+⚠ Possible secret detected in .env.example:
+  STRIPE_SECRET_KEY contains a value matching your local ~/.env
+```
+
+Because it only scans staged or tracked files, anything covered by `.gitignore` (like your real `.env`) is never flagged. To keep false positives low, only **exact, full value matches** count, and obvious placeholders — short values, `<your-key>`, `changeme`, `sk_test_…`, `*_here`, and similar — are ignored.
+
+**Without a `~/.env`**, there are no known values to compare against, so envoy falls back to a lightweight heuristic: it warns when a secret-shaped key (`*_KEY`, `*_SECRET`, `*_TOKEN`, `*_PASSWORD`) holds a non-placeholder value.
+
+The zero-exit-on-clean contract means it stays invisible until the day it saves you. Wire it into your commit step via your `package.json`:
+
+```json
+{
+	"scripts": {
+		"precommit": "envoy --check"
+	}
+}
+```
+
+…or a git hook manager like [husky](https://github.com/typicode/husky) or [lefthook](https://github.com/evilmartians/lefthook):
+
+```yaml
+# lefthook.yml
+pre-commit:
+    commands:
+        check-env:
+            run: envoy --check
+```
+
+### Refuse to write into tracked files (write-time checks)
 
 Every time envoy writes a `.env` file it runs two git safety checks automatically:
 
@@ -140,47 +263,9 @@ Use `--skip-audit` to bypass both checks — for example, in a non-git environme
 envoy --skip-audit
 ```
 
-### Postinstall hook
+## MCP tool
 
-The highest-value place to run envoy is in your project's `postinstall` script. Every contributor who clones the repo and runs their package manager gets a fully populated `.env` automatically — no onboarding doc to follow, no values to track down.
-
-```json
-{
-	"scripts": {
-		"postinstall": "envoy"
-	}
-}
-```
-
-Because envoy skips any `.env` that already exists, running it repeatedly is completely safe. Contributors who already have a `.env` won't have their values touched.
-
-**npm vs Yarn**
-
-Use `postinstall` for this hook regardless of which package manager your project uses. While npm supports a `prepare` lifecycle script that only runs during local development, **Yarn Berry does not support `prepare`** — `postinstall` is the correct choice for both.
-
-**Library authors**
-
-If your package is published to npm, a bare `postinstall` will run for every consumer who installs your package as a dependency — which is not what you want. Use [`pinst`](https://github.com/typicode/pinst) to strip the hook from your published tarball:
-
-```sh
-yarn add --dev pinst
-```
-
-```json
-{
-	"scripts": {
-		"postinstall": "envoy",
-		"prepack": "pinst --disable",
-		"postpack": "pinst --enable"
-	}
-}
-```
-
-`pinst --disable` removes `postinstall` from `package.json` before packing, so the published tarball consumers receive contains no hook. `pinst --enable` restores it locally afterward.
-
-### MCP tool
-
-Envoy ships an MCP server so AI tools can call `copy_env` directly. Add it to your host's config:
+Envoy ships an MCP server so AI tools can call `copy_env` and `check_env` directly. Add it to your host's config:
 
 **Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 
@@ -208,9 +293,11 @@ Envoy ships an MCP server so AI tools can call `copy_env` directly. Add it to yo
 }
 ```
 
-The `copy_env` tool accepts `dir`, `force`, `dry_run`, `root_env_path`, and `skip_audit` — the same options as the CLI.
+The `copy_env` tool accepts `dir`, `force`, `dry_run`, `root_env_path`, and `skip_audit` — the same options as the CLI. A read-only `check_env` tool is also exposed (accepting `dir` and `root_env_path`), mirroring `envoy --check` for AI-driven pre-commit validation.
 
 ## How it works
+
+**Copying values (`envoy`)**
 
 1. Scans `dir` recursively for `.env.example` files (ignoring `node_modules`)
 2. For each one, checks whether a `.env` already exists alongside it (skips unless `--force`)
@@ -221,6 +308,13 @@ The `copy_env` tool accepts `dir`, `force`, `dry_run`, `root_env_path`, and `ski
     - **`KEY=VALUE` lines** where `KEY` exists in `~/.env` get the root value substituted
     - **`KEY=VALUE` lines** where `KEY` is absent fall back to the example value
 6. Writes the result to `.env` next to the example file
+
+**Validating commits (`envoy --check`)**
+
+1. Asks git which files are staged — or, if none are, every tracked file
+2. Reads `~/.env` (or `--root`) into the set of real values to protect
+3. Flags any scanned file containing one of those values verbatim — or, with no `~/.env`, any secret-shaped key holding a non-placeholder value
+4. Exits non-zero on a finding, or zero and silent when clean — all without writing anything
 
 No network calls. No config files. No global state.
 

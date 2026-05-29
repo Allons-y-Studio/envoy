@@ -11,13 +11,23 @@ import { spawnSync } from "node:child_process";
 import {
   auditEnvFile,
   buildEnvContent,
+  checkEnv,
   copyEnv,
+  filesToScan,
   findExampleFiles,
+  isPlaceholderValue,
+  isSecretShapedKey,
   parseEnvFile,
   parseLine,
   processExampleFile,
+  scanContent,
 } from "./index.js";
-import { copyEnvToolHandler, formatResults } from "./mcp.js";
+import {
+  checkEnvToolHandler,
+  copyEnvToolHandler,
+  formatCheckFindings,
+  formatResults,
+} from "./mcp.js";
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -582,4 +592,259 @@ test("formatResults: no gitignore warning when properly gitignored", (t) => {
     },
   ]);
   t.false(text.includes(".gitignore"));
+});
+
+// ─── isPlaceholderValue ───────────────────────────────────────────────────────
+
+test("isPlaceholderValue: treats short values as placeholders", (t) => {
+  t.true(isPlaceholderValue(""));
+  t.true(isPlaceholderValue("abc"));
+  t.true(isPlaceholderValue("1234567")); // 7 chars, below threshold
+});
+
+test("isPlaceholderValue: flags common placeholder shapes", (t) => {
+  t.true(isPlaceholderValue("xxxxxxxx"));
+  t.true(isPlaceholderValue("<your-api-key>"));
+  t.true(isPlaceholderValue("your_secret_value"));
+  t.true(isPlaceholderValue("changeme-please"));
+  t.true(isPlaceholderValue("sk_test_abc123def456"));
+  t.true(isPlaceholderValue("some_example_token"));
+  t.true(isPlaceholderValue("value_here"));
+});
+
+test("isPlaceholderValue: real-looking secrets are not placeholders", (t) => {
+  t.false(isPlaceholderValue("sk_live_4eC39HqLyjWDarjtT1zdp7dc"));
+  t.false(isPlaceholderValue("postgres://user:p@ssw0rd@host:5432/db"));
+  t.false(isPlaceholderValue("AKIAIOSFODNN7EXAMPLEKEY"));
+});
+
+test("isPlaceholderValue: strips surrounding quotes before judging", (t) => {
+  t.true(isPlaceholderValue('"short"'));
+  t.false(isPlaceholderValue('"sk_live_4eC39HqLyjWDarjtT1zdp7dc"'));
+});
+
+// ─── isSecretShapedKey ────────────────────────────────────────────────────────
+
+test("isSecretShapedKey: matches secret-shaped key names", (t) => {
+  t.true(isSecretShapedKey("STRIPE_SECRET_KEY"));
+  t.true(isSecretShapedKey("API_KEY"));
+  t.true(isSecretShapedKey("GITHUB_TOKEN"));
+  t.true(isSecretShapedKey("DB_PASSWORD"));
+  t.true(isSecretShapedKey("AWS_SECRET"));
+});
+
+test("isSecretShapedKey: ignores non-secret key names", (t) => {
+  t.false(isSecretShapedKey("DATABASE_URL"));
+  t.false(isSecretShapedKey("PORT"));
+  t.false(isSecretShapedKey("NODE_ENV"));
+  t.false(isSecretShapedKey("KEYBOARD_LAYOUT")); // KEY not at a boundary
+});
+
+// ─── scanContent ──────────────────────────────────────────────────────────────
+
+test("scanContent: flags a known secret value appearing verbatim", (t) => {
+  const secret = "sk_live_4eC39HqLyjWDarjtT1zdp7dc";
+  const findings = scanContent(
+    "/p/.env.example",
+    `STRIPE_SECRET_KEY=${secret}\n`,
+    new Map([[secret, "STRIPE_SECRET_KEY"]]),
+  );
+  t.is(findings.length, 1);
+  t.is(findings[0].key, "STRIPE_SECRET_KEY");
+  t.is(findings[0].kind, "known-secret");
+});
+
+test("scanContent: finds a known secret in a non-env file", (t) => {
+  const secret = "sk_live_4eC39HqLyjWDarjtT1zdp7dc";
+  const findings = scanContent(
+    "/p/config.json",
+    `{ "stripeKey": "${secret}" }`,
+    new Map([[secret, "STRIPE_SECRET_KEY"]]),
+  );
+  t.is(findings.length, 1);
+  t.is(findings[0].kind, "known-secret");
+});
+
+test("scanContent: secret-shaped heuristic flags real values in env files", (t) => {
+  const findings = scanContent(
+    "/p/.env.example",
+    "API_KEY=a1b2c3d4e5f6g7h8\n",
+    new Map(),
+  );
+  t.is(findings.length, 1);
+  t.is(findings[0].key, "API_KEY");
+  t.is(findings[0].kind, "secret-shaped");
+});
+
+test("scanContent: secret-shaped heuristic ignores placeholders", (t) => {
+  const findings = scanContent(
+    "/p/.env.example",
+    "API_KEY=<your-api-key>\nDB_PASSWORD=changeme\n",
+    new Map(),
+  );
+  t.is(findings.length, 0);
+});
+
+test("scanContent: heuristic does not apply to non-env files", (t) => {
+  const findings = scanContent(
+    "/p/config.js",
+    "const API_KEY = 'a1b2c3d4e5f6g7h8';\n",
+    new Map(),
+  );
+  t.is(findings.length, 0);
+});
+
+test("scanContent: known-secret takes precedence over heuristic (one per key)", (t) => {
+  const secret = "sk_live_4eC39HqLyjWDarjtT1zdp7dc";
+  const findings = scanContent(
+    "/p/.env.example",
+    `STRIPE_SECRET_KEY=${secret}\n`,
+    new Map([[secret, "STRIPE_SECRET_KEY"]]),
+  );
+  t.is(findings.length, 1);
+  t.is(findings[0].kind, "known-secret");
+});
+
+// ─── filesToScan ──────────────────────────────────────────────────────────────
+
+test("filesToScan: returns an empty array outside a git repo", (t) => {
+  const dir = tmpDir();
+  try {
+    t.deepEqual(filesToScan(dir), []);
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("filesToScan: returns staged files when something is staged", (t) => {
+  const dir = tmpGitDir({ gitignore: ".env\n" });
+  try {
+    const git = (/** @type {string[]} */ args) =>
+      spawnSync("git", args, { cwd: dir });
+    fs.writeFileSync(path.join(dir, ".env.example"), "FOO=bar\n");
+    fs.writeFileSync(path.join(dir, "untracked.txt"), "nope\n");
+    git(["add", ".env.example"]);
+    const files = filesToScan(dir);
+    t.is(files.length, 1);
+    t.true(files[0].endsWith(".env.example"));
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("filesToScan: falls back to all tracked files when nothing is staged", (t) => {
+  const dir = tmpGitDir({ gitignore: ".env\n" });
+  try {
+    const git = (/** @type {string[]} */ args) =>
+      spawnSync("git", args, { cwd: dir });
+    fs.writeFileSync(path.join(dir, ".env.example"), "FOO=bar\n");
+    git(["add", ".env.example"]);
+    git(["commit", "-m", "add example"]);
+    const files = filesToScan(dir);
+    // .gitignore (committed by tmpGitDir) + .env.example
+    t.true(files.some((f) => f.endsWith(".env.example")));
+    t.true(files.some((f) => f.endsWith(".gitignore")));
+  } finally {
+    cleanup(dir);
+  }
+});
+
+// ─── checkEnv ─────────────────────────────────────────────────────────────────
+
+test("checkEnv: flags a committed file holding a known secret", (t) => {
+  const dir = tmpDir();
+  try {
+    const rootEnv = path.join(dir, "root.env");
+    const secret = "sk_live_4eC39HqLyjWDarjtT1zdp7dc";
+    fs.writeFileSync(rootEnv, `STRIPE_SECRET_KEY=${secret}\n`);
+    const example = path.join(dir, ".env.example");
+    fs.writeFileSync(example, `STRIPE_SECRET_KEY=${secret}\n`);
+    const findings = checkEnv(dir, { rootEnvPath: rootEnv, files: [example] });
+    t.is(findings.length, 1);
+    t.is(findings[0].kind, "known-secret");
+    t.is(findings[0].key, "STRIPE_SECRET_KEY");
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("checkEnv: returns no findings when example uses a placeholder", (t) => {
+  const dir = tmpDir();
+  try {
+    const rootEnv = path.join(dir, "root.env");
+    fs.writeFileSync(rootEnv, "STRIPE_SECRET_KEY=sk_live_4eC39HqLyjWDarjtT1zdp7dc\n");
+    const example = path.join(dir, ".env.example");
+    fs.writeFileSync(example, "STRIPE_SECRET_KEY=sk_test_placeholder123\n");
+    const findings = checkEnv(dir, { rootEnvPath: rootEnv, files: [example] });
+    t.is(findings.length, 0);
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("checkEnv: secret-shaped heuristic works without a root .env", (t) => {
+  const dir = tmpDir();
+  try {
+    const example = path.join(dir, ".env.example");
+    fs.writeFileSync(example, "API_KEY=a1b2c3d4e5f6g7h8\n");
+    const findings = checkEnv(dir, {
+      rootEnvPath: "/nonexistent/.env",
+      files: [example],
+    });
+    t.is(findings.length, 1);
+    t.is(findings[0].kind, "secret-shaped");
+  } finally {
+    cleanup(dir);
+  }
+});
+
+test("checkEnv: skips files that cannot be read", (t) => {
+  const dir = tmpDir();
+  try {
+    const findings = checkEnv(dir, {
+      rootEnvPath: "/nonexistent/.env",
+      files: [path.join(dir, "does-not-exist")],
+    });
+    t.deepEqual(findings, []);
+  } finally {
+    cleanup(dir);
+  }
+});
+
+// ─── formatCheckFindings (MCP) ────────────────────────────────────────────────
+
+test("formatCheckFindings: returns a clean message when no findings", (t) =>
+  t.is(formatCheckFindings([]), "No leaked secrets detected."));
+
+test("formatCheckFindings: describes a known-secret finding", (t) => {
+  const text = formatCheckFindings([
+    { file: "/p/.env.example", key: "STRIPE_SECRET_KEY", kind: "known-secret" },
+  ]);
+  t.true(text.includes("/p/.env.example"));
+  t.true(text.includes("STRIPE_SECRET_KEY"));
+  t.true(text.includes("matching your local ~/.env"));
+});
+
+test("formatCheckFindings: describes a secret-shaped finding", (t) => {
+  const text = formatCheckFindings([
+    { file: "/p/.env.example", key: "API_KEY", kind: "secret-shaped" },
+  ]);
+  t.true(text.includes("looks like a secret"));
+});
+
+// ─── checkEnvToolHandler (MCP) ─────────────────────────────────────────────────
+
+test("checkEnvToolHandler: returns MCP content structure", (t) => {
+  const dir = tmpDir();
+  try {
+    const { content } = checkEnvToolHandler({
+      dir,
+      root_env_path: "/nonexistent/.env",
+    });
+    t.true(Array.isArray(content));
+    t.is(content[0].type, "text");
+    t.true(typeof content[0].text === "string");
+  } finally {
+    cleanup(dir);
+  }
 });
