@@ -1,5 +1,5 @@
 <div align="center">
-  <img width="250" src="https://github.com/castastrophe/envoy/blob/main/logo-envoy.png?raw=true">
+  <img width="250" src="https://github.com/Allons-y-Studio/envoy/blob/main/logo-envoy.png?raw=true">
 </div>
 <h1 align="center">Envoy</h1>
 <p align="center">
@@ -322,7 +322,7 @@ No network calls. No config files. No global state.
 
 Envoy is intentionally minimal today — it does one thing and does it well. The bigger vision is to make it the single tool that bridges your personal secrets and every project you work in, without friction or foot-guns. That means smarter value handling, better control over what gets scanned and where, and tighter integration with the safety checks developers already rely on.
 
-Follow along or share your ideas in the [roadmap discussion](https://github.com/castastrophe/envoy/discussions/12).
+Follow along or share your ideas in the [roadmap discussion](https://github.com/Allons-y-Studio/envoy/discussions/12).
 
 ## Requirements
 
@@ -332,9 +332,9 @@ Follow along or share your ideas in the [roadmap discussion](https://github.com/
 
 [Apache 2.0](./LICENSE) © [Cassondra Roberts](https://allons-y.llc)
 
-[github-image]: https://github.com/castastrophe/envoy/actions/workflows/test.yml/badge.svg?branch=main
-[github-url]: https://github.com/castastrophe/envoy/actions/workflows/test.yml
+[github-image]: https://github.com/Allons-y-Studio/envoy/actions/workflows/test.yml/badge.svg?branch=main
+[github-url]: https://github.com/Allons-y-Studio/envoy/actions/workflows/test.yml
 [npm-image]: https://img.shields.io/npm/v/@allons-y/envoy.svg
 [npm-url]: https://www.npmjs.com/package/@allons-y/envoy
-[coverage-image]: https://img.shields.io/nycrc/castastrophe/envoy
-[coverage-url]: https://github.com/castastrophe/envoy/blob/main/.nycrc
+[coverage-image]: https://img.shields.io/nycrc/Allons-y-Studio/envoy
+[coverage-url]: https://github.com/Allons-y-Studio/envoy/blob/main/.nycrc

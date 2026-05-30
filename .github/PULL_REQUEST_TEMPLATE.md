@@ -19,6 +19,7 @@
 ---
 
 - [ ] Tests added or updated (`yarn test`)
-- [ ] Lint clean (`yarn lint`)
-- [ ] Documentation updated where relevant (README, action.yml — CHANGELOG is handled by semantic-release)
+- [ ] Lint clean (`yarn eslint .`)
+- [ ] Types pass (`yarn typecheck`)
+- [ ] Documentation updated where relevant (README — CHANGELOG is handled by semantic-release)
 - [ ] Conventional commit format used (enforced by commitlint)

@@ -7,10 +7,10 @@
 	"author": "Cassondra Roberts <castastrophe@users.noreply.github.com> (https://allons-y.llc)",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/castastrophe/envoy.git"
+		"url": "git+https://github.com/Allons-y-Studio/envoy.git"
 	},
 	"bugs": {
-		"url": "https://github.com/castastrophe/envoy/issues"
+		"url": "https://github.com/Allons-y-Studio/envoy/issues"
 	},
 	"type": "module",
 	"main": "index.js",
