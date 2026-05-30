@@ -72,8 +72,8 @@ const server = new McpServer({
 /**
  * MCP tool handler for copy_env. Extracted for testability.
  *
- * @param {{ dir?: string, force?: boolean, dry_run?: boolean, root_env_path?: string }} args
- * @returns {{ content: Array<{ type: string, text: string }> }}
+ * @param {{ dir?: string, force?: boolean, dry_run?: boolean, root_env_path?: string, skip_audit?: boolean }} [args]
+ * @returns {{ content: Array<{ type: "text", text: string }> }}
  */
 export function copyEnvToolHandler({ dir, force, dry_run, root_env_path, skip_audit } = {}) {
   const results = copyEnv(dir, {
@@ -92,7 +92,7 @@ export function copyEnvToolHandler({ dir, force, dry_run, root_env_path, skip_au
  * MCP tool handler for check_env. Extracted for testability.
  *
  * @param {{ dir?: string, root_env_path?: string }} [args]
- * @returns {{ content: Array<{ type: string, text: string }> }}
+ * @returns {{ content: Array<{ type: "text", text: string }> }}
  */
 export function checkEnvToolHandler({ dir, root_env_path } = {}) {
   const findings = checkEnv(dir, { rootEnvPath: root_env_path });
